@@ -13,6 +13,8 @@ executable script
         RankNTypes DataKinds GADTs ConstraintKinds KindSignatures
         TypeOperators TypeFamilies TypeFamilyDependencies
         ImportQualifiedPost
+        ScopedTypeVariables
+        TypeSynonymInstances RecordWildCards MagicHash
 
     ghc-options:        -Wpartial-type-signatures -fdefer-typed-holes -Wall -Wextra
     build-depends:
@@ -31,3 +33,5 @@ executable script
         , finite-typelits
         , vector-sized
         , gloss
+        , free
+        , groom
