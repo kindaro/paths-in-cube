@@ -1,0 +1,33 @@
+cabal-version: 2.2
+name:          fake-package
+version:       0
+
+executable script
+    main-is:            Main.hs
+    default-language:   Haskell2010
+    default-extensions:
+        UnicodeSyntax BlockArguments TupleSections TypeApplications
+        PartialTypeSignatures PatternSynonyms LiberalTypeSynonyms
+        StandaloneDeriving FlexibleInstances FlexibleContexts
+        MultiParamTypeClasses FunctionalDependencies UndecidableInstances
+        RankNTypes DataKinds GADTs ConstraintKinds KindSignatures
+        TypeOperators TypeFamilies TypeFamilyDependencies
+        ImportQualifiedPost
+
+    ghc-options:        -Wpartial-type-signatures -fdefer-typed-holes -Wall -Wextra
+    build-depends:
+        base,
+        base-unicode-symbols,
+        containers,
+        containers-unicode-symbols,
+        pretty-show,
+        tasty,
+        tasty-quickcheck,
+        quickcheck-instances,
+        tasty-smallcheck,
+        tasty-hunit,
+        data-fix
+        , tasty-bench >= 0.3
+        , finite-typelits
+        , vector-sized
+        , gloss
