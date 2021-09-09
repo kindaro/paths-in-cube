@@ -18,9 +18,10 @@ import Data.Set (Set)
 import Control.Monad.Free
 import GHC.Exts
 import Data.Foldable qualified as Foldable
+import Text.Groom
 
 main = do
-  print (unitVectors @3)
+  putStrLn ∘ groom ∘ fmap path ∘ retract $ unfold unfolding (initialWalk @3)
   -- Gloss.display (Gloss.InWindow "Nice Window" (200, 200) (10, 10)) Gloss.white (Gloss.Circle 80)
 
 sizeOfBox ∷ Num number ⇒ number
