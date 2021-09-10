@@ -158,7 +158,7 @@ diagonal x = (x, x)
 
 symmetries
   ∷ ∀ dimension. KnownNat dimension
-  ⇒ (FormalHyperoctahedralGroup dimension, EncodedVector dimension 3) ⇸ Vector dimension Int
+  ⇒ (FormalHyperoctahedralGroup dimension, EncodedVector dimension SizeOfBox) ⇸ Vector dimension Int
 symmetries = trace "symmetries entered" array
   where
     box ∷ [Vector dimension Int]
@@ -168,8 +168,8 @@ symmetries = trace "symmetries entered" array
     domain' = (fmap ∘ fmap) encodeVector domain
     array = Array.array (head domain', last domain') (zip domain' values)
 
-{-# specialize symmetries ∷ (FormalHyperoctahedralGroup 2, EncodedVector 2 3) ⇸ Vector 2 Int #-}
-{-# specialize symmetries ∷ (FormalHyperoctahedralGroup 3, EncodedVector 3 3) ⇸ Vector 3 Int #-}
+{-# specialize symmetries ∷ (FormalHyperoctahedralGroup 2, EncodedVector 2 SizeOfBox) ⇸ Vector 2 Int #-}
+{-# specialize symmetries ∷ (FormalHyperoctahedralGroup 3, EncodedVector 3 SizeOfBox) ⇸ Vector 3 Int #-}
 
 newtype WalkUpToSymmetry dimension = WalkUpToSymmetry (Walk dimension)
 
