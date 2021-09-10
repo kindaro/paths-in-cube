@@ -15,23 +15,10 @@ executable script
         ImportQualifiedPost
         ScopedTypeVariables
         TypeSynonymInstances RecordWildCards MagicHash
+        GeneralizedNewtypeDeriving
 
-    ghc-options:        -Wpartial-type-signatures -fdefer-typed-holes -Wall -Wextra
-    build-depends:
-        base,
-        base-unicode-symbols,
-        containers,
-        containers-unicode-symbols,
-        pretty-show,
-        tasty,
-        tasty-quickcheck,
-        quickcheck-instances,
-        tasty-smallcheck,
-        tasty-hunit,
-        data-fix
-        , tasty-bench >= 0.3
+    ghc-options:        -Wpartial-type-signatures -fdefer-typed-holes -Wall -Wextra -Wunused-packages -O0 -fprof-auto
+    build-depends: base, base-unicode-symbols, containers, array
         , finite-typelits
         , vector-sized
-        , gloss
         , free
-        , groom
