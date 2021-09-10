@@ -198,6 +198,3 @@ newtype WalkUpToSymmetry dimension = WalkUpToSymmetry (Walk dimension)
 
 orbit ∷ (Act action underling, Traversable traversable, Memoizable underling) ⇒ [action] → traversable underling → [traversable underling]
 orbit actions = getZipList ∘ traverse (memoize (for (ZipList actions) ∘ flip act))
-
--- orbit ∷ ∀ dimension. KnownNat dimension ⇒ [FormalHyperoctahedralGroup dimension] → [Vector dimension Int] → Set [Vector dimension Int]
--- orbit symmetries = Set.fromList ∘ for (fmap act symmetries) ∘ for
