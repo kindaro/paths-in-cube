@@ -8,7 +8,6 @@ import Data.Vector.Unboxed.Sized (Vector)
 import Data.Vector.Unboxed.Sized qualified as Vector
 import GHC.TypeNats
 import Data.List qualified as List
-import Data.Finite
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Control.Monad.Free
@@ -183,16 +182,6 @@ instance
   ( KnownNat dimension, Act (HyperoctahedralGroup dimension) (Vector dimension number)
   ) ⇒ Act (FormalHyperoctahedralGroup dimension) (Vector dimension number) where
   act = act ∘ Lens.view (Lens.from whelving)
-
-fromList ∷ (Num index, Ix index) ⇒ [α] → Array index α
-fromList list = Array.listArray (0, List.genericLength list - 1) list
-
-hyperoctahedralGroupIndex
-  ∷ ∀ dimension. KnownNat dimension
-  ⇒ Array (FormalHyperoctahedralGroup dimension) (HyperoctahedralGroup dimension)
-hyperoctahedralGroupIndex = fromList (allHyperoctahedralGroup @dimension)
-{-# specialize hyperoctahedralGroupIndex ∷ Array (FormalHyperoctahedralGroup 2) (HyperoctahedralGroup 2) #-}
-{-# specialize hyperoctahedralGroupIndex ∷ Array (FormalHyperoctahedralGroup 3) (HyperoctahedralGroup 3) #-}
 
 newtype WalkUpToSymmetry dimension = WalkUpToSymmetry (Walk dimension)
 
