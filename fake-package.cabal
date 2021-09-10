@@ -17,7 +17,7 @@ executable script
         TypeSynonymInstances RecordWildCards MagicHash
         GeneralizedNewtypeDeriving
 
-    ghc-options:        -Wpartial-type-signatures -fdefer-typed-holes -Wall -Wextra -Wunused-packages -O0 -fprof-auto
+    ghc-options:        -Wpartial-type-signatures -fdefer-typed-holes -Wall -Wextra -Wunused-packages -O2 -fprof-auto
     build-depends: base, base-unicode-symbols, containers, array
         , finite-typelits
         , vector-sized

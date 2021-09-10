@@ -18,6 +18,7 @@ import Control.Monad
 import Data.Array qualified as Array
 import Data.Array (Array, Ix)
 import Debug.Trace
+import Data.Bifunctor
 
 main ∷ IO ( )
 main = do
@@ -49,7 +50,7 @@ insideTheBox = all (\ x → 0 ≤ x ∧ x < sizeOfBox)
 for ∷ Functor functor ⇒ functor α → (α → β) → functor β
 for = flip fmap
 
-type key ⇸ value = Map.Map key value
+type key ⇸ value = Array key value
 
 unitVectors ∷ ∀ dimension. KnownNat dimension ⇒ Vector dimension (Vector dimension Int)
 unitVectors = Vector.zipWith (\ vector replacement → vector Vector.// [replacement]) 0 bitsToSet
@@ -129,22 +130,46 @@ hyperoctahedralGroupIndex = fromList (allHyperoctahedralGroup @dimension)
 {-# specialize hyperoctahedralGroupIndex ∷ Array (FormalHyperoctahedralGroup 2) (HyperoctahedralGroup 2) #-}
 {-# specialize hyperoctahedralGroupIndex ∷ Array (FormalHyperoctahedralGroup 3) (HyperoctahedralGroup 3) #-}
 
-applySymmetry ∷ ∀ dimension. KnownNat dimension ⇒ FormalHyperoctahedralGroup dimension → Vector dimension Int → Vector dimension Int 
+applySymmetry
+  ∷ ∀ dimension. KnownNat dimension
+  ⇒ FormalHyperoctahedralGroup dimension → Vector dimension Int → Vector dimension Int
 applySymmetry identifier =
   let HyperoctahedralGroup {..} = hyperoctahedralGroupIndex Array.! identifier
-  in trace "applySymmetry entered" (rotate permutation ∘ reflect reflexion)
+  in rotate permutation ∘ reflect reflexion
   where
     rotate permutation = (`Vector.backpermute` indices permutation)
     reflect reflexion = fmap (`mod` sizeOfBox) ∘ Vector.zipWith ($) (for reflexion \ bit → if bit then id else \ x → -x + 1)
 
-applySymmetryMemoized ∷ ∀ dimension. KnownNat dimension ⇒ FormalHyperoctahedralGroup dimension → Vector dimension Int → Vector dimension Int 
-applySymmetryMemoized = curry (symmetries Map.!)
+applySymmetryMemoized ∷
+  ∀ dimension. KnownNat dimension
+  ⇒ FormalHyperoctahedralGroup dimension → Vector dimension Int → Vector dimension Int
+applySymmetryMemoized symmetry vector = symmetries Array.! (symmetry, encodeVector vector)
 
-symmetries ∷ ∀ dimension. KnownNat dimension ⇒ (FormalHyperoctahedralGroup dimension, Vector dimension Int) ⇸ Vector dimension Int
-symmetries = trace "symmetries entered" (Map.fromSet (uncurry applySymmetry) (Set.fromList (pure (,) <*> Array.indices hyperoctahedralGroupIndex <*> box)))
+newtype EncodedVector (dimension ∷ Nat) (sizeOfBox ∷ Nat) = EncodedVector Int deriving (Show, Eq, Ord, Num, Ix)
+
+encodeVector
+  ∷ ∀ dimension sizeOfBox. (KnownNat dimension, KnownNat sizeOfBox)
+  ⇒ Vector dimension Int → EncodedVector dimension sizeOfBox
+encodeVector = EncodedVector ∘ sum ∘ polynomial
+  where
+    polynomial vector = Vector.zipWith (\ digit power → digit * get @sizeOfBox reifiedNat^power) vector (Vector.enumFromN (0 ∷ Int))
+
+diagonal x = (x, x)
+
+symmetries
+  ∷ ∀ dimension. KnownNat dimension
+  ⇒ (FormalHyperoctahedralGroup dimension, EncodedVector dimension 3) ⇸ Vector dimension Int
+symmetries = trace "symmetries entered" array
   where
     box ∷ [Vector dimension Int]
     box = Vector.replicateM [0.. sizeOfBox - 1]
+    domain = pure (,) <*> Array.indices hyperoctahedralGroupIndex <*> box
+    values = fmap (uncurry applySymmetry) domain
+    domain' = (fmap ∘ fmap) encodeVector domain
+    array = Array.array (head domain', last domain') (zip domain' values)
+
+{-# specialize symmetries ∷ (FormalHyperoctahedralGroup 2, EncodedVector 2 3) ⇸ Vector 2 Int #-}
+{-# specialize symmetries ∷ (FormalHyperoctahedralGroup 3, EncodedVector 3 3) ⇸ Vector 3 Int #-}
 
 newtype WalkUpToSymmetry dimension = WalkUpToSymmetry (Walk dimension)
 
