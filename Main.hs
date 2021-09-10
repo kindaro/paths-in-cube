@@ -4,8 +4,8 @@ module Main (main) where
 
 import Prelude
 import Prelude.Unicode
-import Data.Vector.Sized (Vector)
-import Data.Vector.Sized qualified as Vector
+import Data.Vector.Unboxed.Sized (Vector)
+import Data.Vector.Unboxed.Sized qualified as Vector
 import GHC.TypeNats
 import Data.List qualified as List
 import Data.Finite
@@ -33,10 +33,10 @@ newtype ReifiedNat (nat ∷ Nat) number = ReifiedNat {get ∷ number} deriving (
 reifiedNat ∷ ∀ nat number. (KnownNat nat, Num number) ⇒ ReifiedNat nat number
 reifiedNat = ReifiedNat {get = fromIntegral (natVal' (GHC.Exts.proxy# @nat))}
 
-vector3d ∷ α → α → α → Vector 3 α
+vector3d ∷ Vector.Unbox α ⇒ α → α → α → Vector 3 α
 vector3d x y z = Vector.fromTuple (x, y, z)
 
-showVector ∷ Show α ⇒ Vector dimension α → String
+showVector ∷ (Show α, Vector.Unbox α) ⇒ Vector dimension α → String
 showVector vector = "⟨" ++ (unwords ∘ fmap show ∘ Vector.toList) vector ++ "⟩"
 
 type Dimension = 2
@@ -46,11 +46,11 @@ sizeOfTheBox ∷ Num number ⇒ number
 sizeOfTheBox = get (reifiedNat @SizeOfTheBox)
 
 
-theBox ∷ (Num number, Enum number, KnownNat dimension) ⇒ [Vector dimension number]
+theBox ∷ (Num number, Enum number, Vector.Unbox number, KnownNat dimension) ⇒ [Vector dimension number]
 theBox = Vector.replicateM [0.. sizeOfTheBox - 1]
 
-isInsideTheBox ∷ Foldable foldable ⇒ foldable Int → Bool
-isInsideTheBox = all (\ x → 0 ≤ x ∧ x < sizeOfTheBox)
+isInsideTheBox ∷ Vector dimension Int → Bool
+isInsideTheBox = Vector.all (\ x → 0 ≤ x ∧ x < sizeOfTheBox)
 
 instance KnownNat dimension ⇒ Memoizable (Vector dimension Int) where
   memoize ∷ ∀ output. (Vector dimension Int → output) → Vector dimension Int → output
@@ -65,11 +65,11 @@ instance KnownNat dimension ⇒ Memoizable (Vector dimension Int) where
           contents = fmap (encodeVector Arrow.&&& function) theBox
 
       encodeVector ∷ ∀ dimension'. KnownNat dimension' ⇒ Vector dimension' Int → Int
-      encodeVector = sum ∘ polynomial
+      encodeVector = Vector.sum ∘ polynomial
         where
           polynomial vector = Vector.zipWith (\ digit power → digit * get @SizeOfTheBox reifiedNat^power) vector (enumFrom0 @Int)
 
-enumFrom0 ∷ ∀ number length. (Num number, Enum number, KnownNat length) ⇒ Vector length number
+enumFrom0 ∷ ∀ number length. (Num number, Enum number, Vector.Unbox number, KnownNat length) ⇒ Vector length number
 enumFrom0 = Vector.enumFromN 0
 
 for ∷ Functor functor ⇒ functor α → (α → β) → functor β
@@ -78,13 +78,13 @@ for = flip fmap
 type key ⇸ value = Array key value
 
 unitVectors ∷ ∀ dimension. KnownNat dimension ⇒ Vector dimension (Vector dimension Int)
-unitVectors = Vector.zipWith (\ vector replacement → vector Vector.// [replacement]) 0 bitsToSet
+unitVectors = Vector.map makeUnitVector enumFrom0
   where
-    bitsToSet ∷ Vector dimension (Finite dimension, Int)
-    bitsToSet = Vector.zip enumFrom0 1
+    makeUnitVector ∷ Int → Vector dimension Int
+    makeUnitVector bit = 0 Vector.// [(fromIntegral bit, 1)]
 
 directions ∷ ∀ dimension. KnownNat dimension ⇒ [Vector dimension Int]
-directions = Vector.toList (unitVectors Vector.++ fmap negate unitVectors)
+directions = Vector.toList (unitVectors Vector.++ Vector.map negate unitVectors)
 
 simpleStep ∷ KnownNat dimension ⇒ Vector dimension Int → [Vector dimension Int]
 simpleStep = filter isInsideTheBox ∘ for directions ∘ {-# scc "vectorAddition" #-} (+)
@@ -130,7 +130,7 @@ instance Show (Permutation dimension) where show = showVector ∘ indices
 instance Semigroup (Permutation dimension) where
   Permutation afterwards <> Permutation first = Permutation (first `Vector.backpermute` afterwards)
 
-instance Act (Permutation dimension) (Vector dimension α) where
+instance Vector.Unbox α ⇒ Act (Permutation dimension) (Vector dimension α) where
   Permutation {..} `act` vector = vector `Vector.backpermute` indices
 
 allPermutations ∷ ∀ dimension. KnownNat dimension ⇒ [Permutation dimension]
@@ -151,11 +151,14 @@ instance Semigroup (HyperoctahedralGroup dimension) where
     , reflexion = Vector.zipWith (≢) (reflexion afterwards) (reflexion first)
     }
 
-instance Integral number ⇒ Act (HyperoctahedralGroup dimension) (Vector dimension number) where
+instance (Integral number, Vector.Unbox number) ⇒ Act (HyperoctahedralGroup dimension) (Vector dimension number) where
   act HyperoctahedralGroup {..}
-    = fmap (`mod` sizeOfTheBox)
-    ∘ Vector.zipWith ($) (for reflexion \ bit → if bit then id else \ x → -x + sizeOfTheBox)
+    = Vector.map ((`mod` sizeOfTheBox) ∘ uncurry maybeReflect)
+    ∘ Vector.zip reflexion
     ∘ act permutation
+      where
+        maybeReflect ∷ Bool → number → number
+        maybeReflect reflect = if reflect then id else \ x → -x + sizeOfTheBox
 
 allHyperoctahedralGroup ∷ ∀ dimension. KnownNat dimension ⇒ [HyperoctahedralGroup dimension]
 allHyperoctahedralGroup = do
