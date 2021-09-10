@@ -1,3 +1,5 @@
+{-# options_ghc -Wno-orphans #-}
+
 module Main (main) where
 
 import Prelude
@@ -7,22 +9,23 @@ import Data.Vector.Sized qualified as Vector
 import GHC.TypeNats
 import Data.List qualified as List
 import Data.Finite
-import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Control.Monad.Free
 import GHC.Exts qualified
-import Data.Foldable qualified as Foldable
 import Data.Maybe
-import Control.Monad
 import Data.Array qualified as Array
 import Data.Array (Array, Ix)
 import Debug.Trace
-import Data.Bifunctor
+import Data.Act
+import Control.Lens qualified as Lens
+import Data.Function.Memoize
+import Control.Arrow qualified as Arrow
+import Control.Applicative
 
 main ∷ IO ( )
 main = do
-  print ∘ length $ Set.map (head ∘ Set.toList) ∘ Set.fromList ∘ fmap (orbit (Array.indices hyperoctahedralGroupIndex) ∘ path) ∘ retract $ unfold unfolding (initialWalk @4)
+  print ∘ length $ Set.map (head ∘ Set.toList) ∘ Set.fromList ∘ fmap (Set.fromList ∘ orbit (allHyperoctahedralGroup @Dimension) ∘ path) ∘ retract $ unfold unfolding (initialWalk @Dimension)
   -- Gloss.display (Gloss.InWindow "Nice Window" (200, 200) (10, 10)) Gloss.white (Gloss.Circle 80)
 
 newtype ReifiedNat (nat ∷ Nat) number = ReifiedNat {get ∷ number} deriving (Show, Eq, Ord)
@@ -30,22 +33,44 @@ newtype ReifiedNat (nat ∷ Nat) number = ReifiedNat {get ∷ number} deriving (
 reifiedNat ∷ ∀ nat number. (KnownNat nat, Num number) ⇒ ReifiedNat nat number
 reifiedNat = ReifiedNat {get = fromIntegral (natVal' (GHC.Exts.proxy# @nat))}
 
-applyAtIndex ∷ Finite length → (α → α) → Vector length α → Vector length α
-applyAtIndex index function vector = vector Vector.// [(index, function (Vector.index vector index))]
-
 vector3d ∷ α → α → α → Vector 3 α
 vector3d x y z = Vector.fromTuple (x, y, z)
 
 showVector ∷ Show α ⇒ Vector dimension α → String
 showVector vector = "⟨" ++ (unwords ∘ fmap show ∘ Vector.toList) vector ++ "⟩"
 
-type SizeOfBox = 2
+type Dimension = 2
+type SizeOfTheBox = 6
 
-sizeOfBox ∷ Num number ⇒ number
-sizeOfBox = get (reifiedNat @SizeOfBox)
+sizeOfTheBox ∷ Num number ⇒ number
+sizeOfTheBox = get (reifiedNat @SizeOfTheBox)
 
-insideTheBox ∷ Foldable foldable ⇒ foldable Int → Bool
-insideTheBox = all (\ x → 0 ≤ x ∧ x < sizeOfBox)
+
+theBox ∷ (Num number, Enum number, KnownNat dimension) ⇒ [Vector dimension number]
+theBox = Vector.replicateM [0.. sizeOfTheBox - 1]
+
+isInsideTheBox ∷ Foldable foldable ⇒ foldable Int → Bool
+isInsideTheBox = all (\ x → 0 ≤ x ∧ x < sizeOfTheBox)
+
+instance KnownNat dimension ⇒ Memoizable (Vector dimension Int) where
+  memoize ∷ ∀ output. (Vector dimension Int → output) → Vector dimension Int → output
+  memoize function = \ input → if isInsideTheBox input
+    then memory Array.! encodeVector input
+    else function input
+    where
+      memory ∷ Int ⇸ output
+      memory = Array.array bounds contents
+        where
+          bounds = (encodeVector @dimension (head theBox), encodeVector @dimension (last theBox))
+          contents = fmap (encodeVector Arrow.&&& function) theBox
+
+      encodeVector ∷ ∀ dimension'. KnownNat dimension' ⇒ Vector dimension' Int → Int
+      encodeVector = sum ∘ polynomial
+        where
+          polynomial vector = Vector.zipWith (\ digit power → digit * get @SizeOfTheBox reifiedNat^power) vector (enumFrom0 @Int)
+
+enumFrom0 ∷ ∀ number length. (Num number, Enum number, KnownNat length) ⇒ Vector length number
+enumFrom0 = Vector.enumFromN 0
 
 for ∷ Functor functor ⇒ functor α → (α → β) → functor β
 for = flip fmap
@@ -56,16 +81,18 @@ unitVectors ∷ ∀ dimension. KnownNat dimension ⇒ Vector dimension (Vector d
 unitVectors = Vector.zipWith (\ vector replacement → vector Vector.// [replacement]) 0 bitsToSet
   where
     bitsToSet ∷ Vector dimension (Finite dimension, Int)
-    bitsToSet = Vector.zip (Vector.enumFromN 0) 1
+    bitsToSet = Vector.zip enumFrom0 1
 
 directions ∷ ∀ dimension. KnownNat dimension ⇒ [Vector dimension Int]
 directions = Vector.toList (unitVectors Vector.++ fmap negate unitVectors)
 
 simpleStep ∷ KnownNat dimension ⇒ Vector dimension Int → [Vector dimension Int]
-simpleStep = filter insideTheBox ∘ for directions ∘ (+)
+simpleStep = filter isInsideTheBox ∘ for directions ∘ {-# scc "vectorAddition" #-} (+)
 
 nonRepeatingStep ∷ KnownNat dimension ⇒ Set (Vector dimension Int) → Vector dimension Int → [Vector dimension Int]
-nonRepeatingStep visitedVectors = filter (not ∘ (`Set.member` visitedVectors)) ∘ simpleStep
+nonRepeatingStep visitedVectors = filter notVisited ∘ simpleStep
+  where
+    notVisited = not ∘ (`Set.member` visitedVectors)
 
 data Walk (dimension ∷ Nat) = Walk
   { visitedVectors ∷ Set (Vector dimension Int)
@@ -93,12 +120,18 @@ step Walk {..} = do
 
 unfolding ∷ ∀ dimension. KnownNat dimension ⇒ Walk dimension → Either (Walk dimension) [Walk dimension]
 unfolding walk@Walk {..} = case step walk of
-  [ ] → if Set.size visitedVectors ≡ sizeOfBox ^ get @dimension @Int reifiedNat then Left walk else Right [ ]
+  [ ] → if Set.size visitedVectors ≡ sizeOfTheBox ^ get @dimension @Int reifiedNat then Left walk else Right [ ]
   possibleNextWalks → Right possibleNextWalks
 
 newtype Permutation dimension = Permutation {indices ∷ Vector dimension Int} deriving (Eq, Ord)
 
 instance Show (Permutation dimension) where show = showVector ∘ indices
+
+instance Semigroup (Permutation dimension) where
+  Permutation afterwards <> Permutation first = Permutation (first `Vector.backpermute` afterwards)
+
+instance Act (Permutation dimension) (Vector dimension α) where
+  Permutation {..} `act` vector = vector `Vector.backpermute` indices
 
 allPermutations ∷ ∀ dimension. KnownNat dimension ⇒ [Permutation dimension]
 allPermutations = (fmap Permutation ∘ catMaybes ∘ fmap Vector.fromList ∘ List.permutations)
@@ -112,6 +145,18 @@ data HyperoctahedralGroup (dimension ∷ Nat) = HyperoctahedralGroup
 instance Show (HyperoctahedralGroup dimension) where
   show HyperoctahedralGroup {..} = show permutation ++ for (Vector.toList reflexion) \ bit → if bit then '↑' else '↓'
 
+instance Semigroup (HyperoctahedralGroup dimension) where
+  afterwards <> first = HyperoctahedralGroup
+    { permutation = permutation afterwards <> permutation first
+    , reflexion = Vector.zipWith (≢) (reflexion afterwards) (reflexion first)
+    }
+
+instance Integral number ⇒ Act (HyperoctahedralGroup dimension) (Vector dimension number) where
+  act HyperoctahedralGroup {..}
+    = fmap (`mod` sizeOfTheBox)
+    ∘ Vector.zipWith ($) (for reflexion \ bit → if bit then id else \ x → -x + sizeOfTheBox)
+    ∘ act permutation
+
 allHyperoctahedralGroup ∷ ∀ dimension. KnownNat dimension ⇒ [HyperoctahedralGroup dimension]
 allHyperoctahedralGroup = do
   permutation ← allPermutations
@@ -119,6 +164,22 @@ allHyperoctahedralGroup = do
   return HyperoctahedralGroup {..}
 
 newtype FormalHyperoctahedralGroup (dimension ∷ Nat) = FormalHyperoctahedralGroup Int deriving (Show, Eq, Ord, Num, Ix)
+
+whelving ∷ ∀ dimension. KnownNat dimension ⇒ Lens.Iso' (HyperoctahedralGroup dimension) (FormalHyperoctahedralGroup dimension)
+whelving = Lens.iso getIndex getValue
+  where
+    getIndex value = case List.elemIndex value allHyperoctahedralGroup of
+      Just index → FormalHyperoctahedralGroup index
+      Nothing → error "Impossible: `HyperoctahedralGroup` is closed."
+    getValue (FormalHyperoctahedralGroup index) = allHyperoctahedralGroup List.!! index
+
+instance KnownNat dimension ⇒ Semigroup (FormalHyperoctahedralGroup dimension) where
+  afterwards <> first = Lens.view whelving (Lens.view (Lens.from whelving) afterwards <> Lens.view (Lens.from whelving) first)
+
+instance
+  ( KnownNat dimension, Act (HyperoctahedralGroup dimension) (Vector dimension number)
+  ) ⇒ Act (FormalHyperoctahedralGroup dimension) (Vector dimension number) where
+  act = act ∘ Lens.view (Lens.from whelving)
 
 fromList ∷ (Num index, Ix index) ⇒ [α] → Array index α
 fromList list = Array.listArray (0, List.genericLength list - 1) list
@@ -130,48 +191,10 @@ hyperoctahedralGroupIndex = fromList (allHyperoctahedralGroup @dimension)
 {-# specialize hyperoctahedralGroupIndex ∷ Array (FormalHyperoctahedralGroup 2) (HyperoctahedralGroup 2) #-}
 {-# specialize hyperoctahedralGroupIndex ∷ Array (FormalHyperoctahedralGroup 3) (HyperoctahedralGroup 3) #-}
 
-applySymmetry
-  ∷ ∀ dimension. KnownNat dimension
-  ⇒ FormalHyperoctahedralGroup dimension → Vector dimension Int → Vector dimension Int
-applySymmetry identifier =
-  let HyperoctahedralGroup {..} = hyperoctahedralGroupIndex Array.! identifier
-  in rotate permutation ∘ reflect reflexion
-  where
-    rotate permutation = (`Vector.backpermute` indices permutation)
-    reflect reflexion = fmap (`mod` sizeOfBox) ∘ Vector.zipWith ($) (for reflexion \ bit → if bit then id else \ x → -x + 1)
-
-applySymmetryMemoized ∷
-  ∀ dimension. KnownNat dimension
-  ⇒ FormalHyperoctahedralGroup dimension → Vector dimension Int → Vector dimension Int
-applySymmetryMemoized symmetry vector = symmetries Array.! (symmetry, encodeVector vector)
-
-newtype EncodedVector (dimension ∷ Nat) (sizeOfBox ∷ Nat) = EncodedVector Int deriving (Show, Eq, Ord, Num, Ix)
-
-encodeVector
-  ∷ ∀ dimension sizeOfBox. (KnownNat dimension, KnownNat sizeOfBox)
-  ⇒ Vector dimension Int → EncodedVector dimension sizeOfBox
-encodeVector = EncodedVector ∘ sum ∘ polynomial
-  where
-    polynomial vector = Vector.zipWith (\ digit power → digit * get @sizeOfBox reifiedNat^power) vector (Vector.enumFromN (0 ∷ Int))
-
-diagonal x = (x, x)
-
-symmetries
-  ∷ ∀ dimension. KnownNat dimension
-  ⇒ (FormalHyperoctahedralGroup dimension, EncodedVector dimension SizeOfBox) ⇸ Vector dimension Int
-symmetries = trace "symmetries entered" array
-  where
-    box ∷ [Vector dimension Int]
-    box = Vector.replicateM [0.. sizeOfBox - 1]
-    domain = pure (,) <*> Array.indices hyperoctahedralGroupIndex <*> box
-    values = fmap (uncurry applySymmetry) domain
-    domain' = (fmap ∘ fmap) encodeVector domain
-    array = Array.array (head domain', last domain') (zip domain' values)
-
-{-# specialize symmetries ∷ (FormalHyperoctahedralGroup 2, EncodedVector 2 SizeOfBox) ⇸ Vector 2 Int #-}
-{-# specialize symmetries ∷ (FormalHyperoctahedralGroup 3, EncodedVector 3 SizeOfBox) ⇸ Vector 3 Int #-}
-
 newtype WalkUpToSymmetry dimension = WalkUpToSymmetry (Walk dimension)
 
-orbit ∷ ∀ dimension. KnownNat dimension ⇒ [FormalHyperoctahedralGroup dimension] → [Vector dimension Int] → Set [Vector dimension Int]
-orbit symmetries = Set.fromList ∘ for (fmap applySymmetryMemoized symmetries) ∘ for
+orbit ∷ (Act action underling, Traversable traversable, Memoizable underling) ⇒ [action] → traversable underling → [traversable underling]
+orbit actions = getZipList ∘ traverse (memoize (for (ZipList actions) ∘ flip act))
+
+-- orbit ∷ ∀ dimension. KnownNat dimension ⇒ [FormalHyperoctahedralGroup dimension] → [Vector dimension Int] → Set [Vector dimension Int]
+-- orbit symmetries = Set.fromList ∘ for (fmap act symmetries) ∘ for

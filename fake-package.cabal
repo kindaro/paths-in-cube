@@ -16,9 +16,18 @@ executable script
         ScopedTypeVariables
         TypeSynonymInstances RecordWildCards MagicHash
         GeneralizedNewtypeDeriving
+        InstanceSigs
+
+    -- mixins:   base hiding (Prelude)
+    --       , relude (Relude as Prelude)
+    --       , relude
 
     ghc-options:        -Wpartial-type-signatures -fdefer-typed-holes -Wall -Wextra -Wunused-packages -O2 -fprof-auto
     build-depends: base, base-unicode-symbols, containers, array
         , finite-typelits
         , vector-sized
         , free
+        , acts
+        , lens
+        , memoize
+        , relude
