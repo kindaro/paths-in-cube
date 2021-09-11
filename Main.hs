@@ -21,10 +21,11 @@ import Data.Function.Memoize
 import Control.Arrow qualified as Arrow
 import Control.Applicative
 import Data.Function
+import Data.Containers.ListUtils
 
 main ∷ IO ( )
 main = do
-  print ∘ length $ Set.map (head ∘ Set.toList) ∘ Set.fromList ∘ fmap (Set.fromList ∘ orbit (allHyperoctahedralGroup @Dimension) ∘ path) ∘ retract $ unfold unfolding (initialWalk @Dimension)
+  print ∘ length $ nubOrdOn WalkUpToSymmetry ∘ retract $ unfold unfolding (initialWalk @Dimension)
   -- Gloss.display (Gloss.InWindow "Nice Window" (200, 200) (10, 10)) Gloss.white (Gloss.Circle 80)
 
 newtype ReifiedNat (nat ∷ Nat) number = ReifiedNat {get ∷ number} deriving (Show, Eq, Ord)
@@ -43,7 +44,6 @@ type SizeOfTheBox = 2
 
 sizeOfTheBox ∷ Num number ⇒ number
 sizeOfTheBox = get (reifiedNat @SizeOfTheBox)
-
 
 theBox ∷ (Num number, Enum number, Vector.Unbox number, KnownNat dimension) ⇒ [Vector dimension number]
 theBox = Vector.replicateM [0.. sizeOfTheBox - 1]
@@ -132,8 +132,8 @@ instance Show (Permutation dimension) where show = showVector ∘ indices
 instance Semigroup (Permutation dimension) where
   Permutation afterwards <> Permutation first = Permutation (first `Vector.backpermute` afterwards)
 
-instance Vector.Unbox α ⇒ Act (Permutation dimension) (Vector dimension α) where
-  Permutation {..} `act` vector = vector `Vector.backpermute` indices
+instance (Vector.Unbox α, Memoizable (Vector dimension α)) ⇒ Act (Permutation dimension) (Vector dimension α) where
+  act Permutation {..} = memoize (flip Vector.backpermute indices)
 
 identityPermutation ∷ ∀ dimension. KnownNat dimension ⇒ Permutation dimension
 identityPermutation = Permutation enumFrom0
@@ -179,28 +179,30 @@ class Orbit functor action underling where
   orbit ∷ functor action → underling → functor underling
 
 instance (Functor functor, KnownNat dimension) ⇒ Orbit functor (HyperoctahedralGroup dimension) (Vector dimension Int) where
-  orbit symmetries = for symmetries ∘ flip act
+  orbit symmetries = memoize worker
+    where
+      worker = for symmetries ∘ flip act
 
 instance KnownNat dimension ⇒ Orbit [ ] (HyperoctahedralGroup dimension) [Vector dimension Int] where
-  orbit symmetries = getZipList ∘ traverse ((memoize ∘ orbit ∘ ZipList) symmetries)
-
-instance KnownNat dimension ⇒ Orbit [ ] (HyperoctahedralGroup dimension) (Walk dimension) where
-  orbit symmetries = getZipList ∘ traverseWalk ((orbit ∘ ZipList) symmetries)
-
-traverseWalk
-  ∷ Applicative applicative
-  ⇒ (Vector dimension Int → applicative (Vector dimension Int)) → Walk dimension → applicative (Walk dimension)
-traverseWalk function Walk {..} = pure Walk
-  <*> (fmap Set.fromList ∘ traverse function ∘ Set.toList) visitedVectors
-  <*> traverse function path
-  <*> function currentPosition
-
-representative
-  ∷ ∀ underling action. (Ord underling, Orbit [ ] action underling)
-  ⇒ [action] → underling → underling
-representative symmetries = minimum ∘ orbit symmetries
+  orbit symmetries = getZipList ∘ traverse ((orbit ∘ ZipList) symmetries)
 
 newtype WalkUpToSymmetry dimension = WalkUpToSymmetry {walkUpToSymmetry ∷ Walk dimension} deriving Show
 
+canonicalize
+  ∷ ∀ underling action. (Ord underling, Orbit [ ] action underling)
+  ⇒ [action] → underling → underling
+canonicalize symmetries = minimum ∘ orbit symmetries
+
+representativePath
+  ∷ ∀ dimension. KnownNat dimension
+  ⇒ WalkUpToSymmetry dimension → (Vector dimension Int, [Vector dimension Int])
+representativePath (WalkUpToSymmetry Walk {..}) = (currentPosition', path')
+  where
+    path' = memoize (canonicalize (allHyperoctahedralGroup @dimension)) path
+    currentPosition' = memoize (canonicalize (allHyperoctahedralGroup @dimension)) currentPosition
+
 instance KnownNat dimension ⇒ Eq (WalkUpToSymmetry dimension) where
-  (==) = (≡) `on` representative (allHyperoctahedralGroup @dimension) ∘ walkUpToSymmetry
+  (==) = (≡) `on` representativePath
+
+instance KnownNat dimension ⇒ Ord (WalkUpToSymmetry dimension) where
+  compare = compare `on` representativePath
