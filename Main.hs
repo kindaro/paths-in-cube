@@ -20,6 +20,7 @@ import Data.Act
 import Data.Function.Memoize
 import Control.Arrow qualified as Arrow
 import Control.Applicative
+import Data.Function
 
 main ∷ IO ( )
 main = do
@@ -88,10 +89,10 @@ directions ∷ ∀ dimension. KnownNat dimension ⇒ [Vector dimension Int]
 directions = Vector.toList (unitVectors Vector.++ Vector.map negate unitVectors)
 
 simpleStep ∷ KnownNat dimension ⇒ Vector dimension Int → [Vector dimension Int]
-simpleStep = filter isInsideTheBox ∘ for directions ∘ {-# scc "vectorAddition" #-} (+)
+simpleStep = filter isInsideTheBox ∘ for directions ∘ (+)
 
 nonRepeatingStep ∷ KnownNat dimension ⇒ Set (Vector dimension Int) → Vector dimension Int → [Vector dimension Int]
-nonRepeatingStep visitedVectors = filter notVisited ∘ simpleStep
+nonRepeatingStep visitedVectors = filter notVisited ∘ memoize simpleStep
   where
     notVisited = not ∘ (`Set.member` visitedVectors)
 
@@ -174,19 +175,32 @@ allHyperoctahedralGroup = do
   reflexion ← Vector.replicateM [True, False]
   return HyperoctahedralGroup {..}
 
--- | We carefully memorize, for every vector inside the box, its orbit under a
--- fixed set of symmetries. Then we transpose to get an orbit of a collection of
--- vectors. Since there is any number of possible collections, but only a few
--- vectors, and only a handful of meaningful collections of symmetries, this
--- works well.
-orbit
-  ∷ ∀ functor underling action. (Act action underling, Traversable functor, Memoizable underling)
-  ⇒ [action] → functor underling → [functor underling]
-orbit symmetries = getZipList ∘ traverse (memoize orbitOfOne)
-  where
-    orbitOfOne = for (ZipList symmetries) ∘ flip act
+class Orbit functor action underling where
+  orbit ∷ functor action → underling → functor underling
 
-representative ∷ (Ord underling, Act action underling) ⇒ [action] → underling → underling
-representative = flip (fmap minimum ∘ fmap ∘ flip act)
+instance (Functor functor, KnownNat dimension) ⇒ Orbit functor (HyperoctahedralGroup dimension) (Vector dimension Int) where
+  orbit symmetries = for symmetries ∘ flip act
+
+instance KnownNat dimension ⇒ Orbit [ ] (HyperoctahedralGroup dimension) [Vector dimension Int] where
+  orbit symmetries = getZipList ∘ traverse ((memoize ∘ orbit ∘ ZipList) symmetries)
+
+instance KnownNat dimension ⇒ Orbit [ ] (HyperoctahedralGroup dimension) (Walk dimension) where
+  orbit symmetries = getZipList ∘ traverseWalk ((orbit ∘ ZipList) symmetries)
+
+traverseWalk
+  ∷ Applicative applicative
+  ⇒ (Vector dimension Int → applicative (Vector dimension Int)) → Walk dimension → applicative (Walk dimension)
+traverseWalk function Walk {..} = pure Walk
+  <*> (fmap Set.fromList ∘ traverse function ∘ Set.toList) visitedVectors
+  <*> traverse function path
+  <*> function currentPosition
+
+representative
+  ∷ ∀ underling action. (Ord underling, Orbit [ ] action underling)
+  ⇒ [action] → underling → underling
+representative symmetries = minimum ∘ orbit symmetries
 
 newtype WalkUpToSymmetry dimension = WalkUpToSymmetry {walkUpToSymmetry ∷ Walk dimension} deriving Show
+
+instance KnownNat dimension ⇒ Eq (WalkUpToSymmetry dimension) where
+  (==) = (≡) `on` representative (allHyperoctahedralGroup @dimension) ∘ walkUpToSymmetry
