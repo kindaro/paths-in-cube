@@ -10,7 +10,6 @@ import GHC.TypeNats
 import qualified Relude.List as List
 import Data.Set qualified as Set
 import Data.Set (Set)
-import Control.Monad.Free
 import GHC.Exts qualified
 import Data.Maybe
 import Data.Array qualified as Array
@@ -21,12 +20,31 @@ import Data.Function.Memoize
 import Control.Arrow qualified as Arrow
 import Control.Applicative
 import Data.Function
-import Data.Containers.ListUtils
+import Relude (bimap)
+import Relude qualified
+import Data.Time qualified as Time
 
 main ∷ IO ( )
 main = do
-  print ∘ length $ nubOrdOn WalkUpToSymmetry ∘ retract $ unfold unfolding (initialWalk @Dimension)
+  time ← Time.getCurrentTime
+  timeMVar ← Relude.newMVar time
+
+  result ← iterator grow (WalkUpToSymmetry (initialWalk @Dimension)) (progressReporter timeMVar)
+  print (length result)
   -- Gloss.display (Gloss.InWindow "Nice Window" (200, 200) (10, 10)) Gloss.white (Gloss.Circle 80)
+
+  where
+    progressReporter timeMVar (berries, sprouts) = do
+      previousTime ← Relude.takeMVar timeMVar
+      currentTime ← Time.getCurrentTime
+      let differenceInTime = Time.diffUTCTime currentTime previousTime
+      Relude.putMVar timeMVar currentTime
+      (putStrLn ∘ List.intercalate "\t")
+        [ show $ length berries
+        , show $ length sprouts
+        , Time.formatTime Time.defaultTimeLocale "%H : %M : %0ES" differenceInTime
+        , Time.formatTime Time.defaultTimeLocale "%Y %m %d — %H : %M : %0ES" currentTime
+        ]
 
 newtype ReifiedNat (nat ∷ Nat) number = ReifiedNat {get ∷ number} deriving (Show, Eq, Ord)
 
@@ -124,6 +142,29 @@ unfolding ∷ ∀ dimension. KnownNat dimension ⇒ Walk dimension → Either (W
 unfolding walk@Walk {..} = case step walk of
   [ ] → if Set.size visitedVectors ≡ sizeOfTheBox ^ get @dimension @Int reifiedNat then Left walk else Right [ ]
   possibleNextWalks → Right possibleNextWalks
+
+grow ∷ KnownNat dimension ⇒ WalkUpToSymmetry dimension → Set (Either (WalkUpToSymmetry dimension) (WalkUpToSymmetry dimension))
+grow = either (Set.singleton ∘ Left ∘ WalkUpToSymmetry) (Set.map (Right ∘ WalkUpToSymmetry) ∘ Set.fromList) ∘ unfolding ∘ walkUpToSymmetry
+
+iterator
+  ∷ ∀ monad underling. (Ord underling, Monad monad)
+  ⇒ (underling → Set (Either underling underling))
+  → underling
+  → ((Set underling, Set underling) → monad ( ))
+  → monad [Set underling]
+iterator grow seed reportProgress = worker (Set.singleton seed)
+  where
+    worker ∷ Set underling → monad [Set underling]
+    worker growth
+      | Set.null growth = return [ ]
+      | otherwise = do
+          let newGrowth@(berries, sprouts) = (partition ∘ Set.unions ∘ Set.map grow) growth
+          reportProgress newGrowth
+          lifeGoesOn ← worker sprouts
+          return (berries: lifeGoesOn)
+
+partition ∷ (Ord left, Ord right) ⇒ Set (Either left right) → (Set left, Set right)
+partition = bimap Set.fromList Set.fromList ∘ List.partitionWith id∘ Set.toList
 
 newtype Permutation dimension = Permutation {indices ∷ Vector dimension Int} deriving (Eq, Ord)
 

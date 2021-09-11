@@ -22,7 +22,7 @@ executable script
     --       , relude (Relude as Prelude)
     --       , relude
 
-    ghc-options:        -Wpartial-type-signatures -fdefer-typed-holes -Wall -Wextra -Wunused-packages -O2 -fprof-auto
+    ghc-options:        -Wpartial-type-signatures -fdefer-typed-holes -Wall -Wextra -Wunused-packages -O2 -fprof-auto -fprof-cafs
     build-depends: base, base-unicode-symbols, containers, array
         , finite-typelits
         , vector-sized
@@ -31,3 +31,4 @@ executable script
         , lens
         , memoize
         , relude
+        , time
