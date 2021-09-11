@@ -15,8 +15,8 @@ executable script
         ImportQualifiedPost
         ScopedTypeVariables
         TypeSynonymInstances RecordWildCards MagicHash
-        GeneralizedNewtypeDeriving
-        InstanceSigs
+        GeneralizedNewtypeDeriving DeriveFunctor
+        InstanceSigs ApplicativeDo
 
     -- mixins:   base hiding (Prelude)
     --       , relude (Relude as Prelude)

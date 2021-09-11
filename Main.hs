@@ -7,17 +7,16 @@ import Prelude.Unicode
 import Data.Vector.Unboxed.Sized (Vector)
 import Data.Vector.Unboxed.Sized qualified as Vector
 import GHC.TypeNats
-import Data.List qualified as List
+import qualified Relude.List as List
 import Data.Set qualified as Set
 import Data.Set (Set)
 import Control.Monad.Free
 import GHC.Exts qualified
 import Data.Maybe
 import Data.Array qualified as Array
-import Data.Array (Array, Ix)
+import Data.Array (Array)
 import Debug.Trace
 import Data.Act
-import Control.Lens qualified as Lens
 import Data.Function.Memoize
 import Control.Arrow qualified as Arrow
 import Control.Applicative
@@ -38,8 +37,8 @@ vector3d x y z = Vector.fromTuple (x, y, z)
 showVector ∷ (Show α, Vector.Unbox α) ⇒ Vector dimension α → String
 showVector vector = "⟨" ++ (unwords ∘ fmap show ∘ Vector.toList) vector ++ "⟩"
 
-type Dimension = 2
-type SizeOfTheBox = 6
+type Dimension = 4
+type SizeOfTheBox = 2
 
 sizeOfTheBox ∷ Num number ⇒ number
 sizeOfTheBox = get (reifiedNat @SizeOfTheBox)
@@ -63,6 +62,9 @@ instance KnownNat dimension ⇒ Memoizable (Vector dimension Int) where
           bounds = (encodeVector @dimension (head theBox), encodeVector @dimension (last theBox))
           contents = fmap (encodeVector Arrow.&&& function) theBox
 
+      -- | I could simply index the array by vectors, since they have the `Ix`
+      -- interface. But it turns out to be twice faster to encode those vectors
+      -- to `Int` and index the array by that `Int`.
       encodeVector ∷ ∀ dimension'. KnownNat dimension' ⇒ Vector dimension' Int → Int
       encodeVector = Vector.sum ∘ polynomial
         where
@@ -132,12 +134,17 @@ instance Semigroup (Permutation dimension) where
 instance Vector.Unbox α ⇒ Act (Permutation dimension) (Vector dimension α) where
   Permutation {..} `act` vector = vector `Vector.backpermute` indices
 
+identityPermutation ∷ ∀ dimension. KnownNat dimension ⇒ Permutation dimension
+identityPermutation = Permutation enumFrom0
+
+permutations ∷ ∀ dimension α. (Vector.Unbox α, KnownNat dimension) ⇒ Vector dimension α → [Vector dimension α]
+permutations = catMaybes ∘ fmap Vector.fromList ∘ List.permutations ∘ Vector.toList
+
 allPermutations ∷ ∀ dimension. KnownNat dimension ⇒ [Permutation dimension]
-allPermutations = (fmap Permutation ∘ catMaybes ∘ fmap Vector.fromList ∘ List.permutations)
-  [0.. get @dimension reifiedNat - 1]
+allPermutations = (fmap Permutation ∘ permutations ∘ indices) identityPermutation
 
 data HyperoctahedralGroup (dimension ∷ Nat) = HyperoctahedralGroup
-  {permutation ∷ Permutation dimension
+  { permutation ∷ Permutation dimension
   , reflexion ∷ Vector dimension Bool
  } deriving (Eq, Ord)
 
@@ -150,7 +157,9 @@ instance Semigroup (HyperoctahedralGroup dimension) where
     , reflexion = Vector.zipWith (≢) (reflexion afterwards) (reflexion first)
     }
 
-instance (Integral number, Vector.Unbox number) ⇒ Act (HyperoctahedralGroup dimension) (Vector dimension number) where
+instance
+  ( Integral number, Vector.Unbox number, Memoizable (Vector dimension number), KnownNat dimension
+  ) ⇒ Act (HyperoctahedralGroup dimension) (Vector dimension number) where
   act HyperoctahedralGroup {..}
     = Vector.map ((`mod` sizeOfTheBox) ∘ uncurry maybeReflect)
     ∘ Vector.zip reflexion
@@ -165,25 +174,19 @@ allHyperoctahedralGroup = do
   reflexion ← Vector.replicateM [True, False]
   return HyperoctahedralGroup {..}
 
-newtype FormalHyperoctahedralGroup (dimension ∷ Nat) = FormalHyperoctahedralGroup Int deriving (Show, Eq, Ord, Num, Ix)
-
-whelving ∷ ∀ dimension. KnownNat dimension ⇒ Lens.Iso' (HyperoctahedralGroup dimension) (FormalHyperoctahedralGroup dimension)
-whelving = Lens.iso getIndex getValue
+-- | We carefully memorize, for every vector inside the box, its orbit under a
+-- fixed set of symmetries. Then we transpose to get an orbit of a collection of
+-- vectors. Since there is any number of possible collections, but only a few
+-- vectors, and only a handful of meaningful collections of symmetries, this
+-- works well.
+orbit
+  ∷ ∀ functor underling action. (Act action underling, Traversable functor, Memoizable underling)
+  ⇒ [action] → functor underling → [functor underling]
+orbit symmetries = getZipList ∘ traverse (memoize orbitOfOne)
   where
-    getIndex value = case List.elemIndex value allHyperoctahedralGroup of
-      Just index → FormalHyperoctahedralGroup index
-      Nothing → error "Impossible: `HyperoctahedralGroup` is closed."
-    getValue (FormalHyperoctahedralGroup index) = allHyperoctahedralGroup List.!! index
+    orbitOfOne = for (ZipList symmetries) ∘ flip act
 
-instance KnownNat dimension ⇒ Semigroup (FormalHyperoctahedralGroup dimension) where
-  afterwards <> first = Lens.view whelving (Lens.view (Lens.from whelving) afterwards <> Lens.view (Lens.from whelving) first)
+representative ∷ (Ord underling, Act action underling) ⇒ [action] → underling → underling
+representative = flip (fmap minimum ∘ fmap ∘ flip act)
 
-instance
-  ( KnownNat dimension, Act (HyperoctahedralGroup dimension) (Vector dimension number)
-  ) ⇒ Act (FormalHyperoctahedralGroup dimension) (Vector dimension number) where
-  act = act ∘ Lens.view (Lens.from whelving)
-
-newtype WalkUpToSymmetry dimension = WalkUpToSymmetry (Walk dimension)
-
-orbit ∷ (Act action underling, Traversable traversable, Memoizable underling) ⇒ [action] → traversable underling → [traversable underling]
-orbit actions = getZipList ∘ traverse (memoize (for (ZipList actions) ∘ flip act))
+newtype WalkUpToSymmetry dimension = WalkUpToSymmetry {walkUpToSymmetry ∷ Walk dimension} deriving Show
