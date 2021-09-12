@@ -2,34 +2,33 @@
 
 module Main (main) where
 
-import Prelude
-import Prelude.Unicode
-import Data.Vector.Unboxed.Sized (Vector)
-import Data.Vector.Unboxed.Sized qualified as Vector
-import GHC.TypeNats
-import qualified Relude.List as List
+import Control.Applicative
+import Control.Arrow qualified as Arrow
+import Control.Comonad
+import Control.Comonad.Cofree (Cofree)
+import Control.Comonad.Cofree qualified as Cofree
+import Control.Comonad.Trans.Cofree (CofreeF ((:<)))
+import Data.Act
+import Data.Array (Array)
+import Data.Array qualified as Array
+import Data.Function
+import Data.Function.Memoize
+import Data.Functor.Foldable qualified as Recursion
+import Data.Map.Lazy (Map)
+import Data.Map.Lazy qualified as Map
+import Data.Maybe
 import Data.Set qualified as Set
 import Data.Set (Set)
-import GHC.Exts qualified
-import Data.Maybe
-import Data.Array qualified as Array
-import Data.Array (Array)
-import Debug.Trace
-import Data.Act
-import Data.Function.Memoize
-import Control.Arrow qualified as Arrow
-import Control.Applicative
-import Data.Function
-import Relude (bimap)
-import Relude qualified
 import Data.Time qualified as Time
-import Data.Map.Lazy qualified as Map
-import Data.Map.Lazy (Map)
-import Control.Comonad
-import Control.Comonad.Cofree qualified as Cofree
-import Control.Comonad.Cofree (Cofree)
-import Control.Comonad.Trans.Cofree (CofreeF ((:<)))
-import Data.Functor.Foldable qualified as Recursion
+import Data.Vector.Unboxed.Sized qualified as Vector
+import Data.Vector.Unboxed.Sized (Vector)
+import GHC.Exts qualified
+import GHC.TypeNats
+import Prelude
+import Prelude.Unicode
+import Relude (bimap)
+import Relude.List qualified as List
+import Relude qualified
 
 main ∷ IO ( )
 main = do
@@ -101,8 +100,6 @@ instance {-# overlapping #-} KnownNat dimension ⇒ Memoizable [Vector dimension
     where
       memory = GHC.Exts.lazy (buildTree (Set.fromList theBox)) function
 
-type Tree key value = Cofree (Map key) value
-  
 buildTree ∷ ∀ key value. Set key → ([key] → value) → Cofree (Map key) value
 buildTree keySet function = Recursion.unfold unfolding [ ]
   where
