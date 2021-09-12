@@ -105,6 +105,7 @@ buildTree keySet function = Recursion.unfold unfolding [ ]
   where
     unfolding ∷ [key] → CofreeF (Map key) value [key]
     unfolding keys = function keys :< Map.fromSet (: keys) keySet
+{-# noinline buildTree #-}
 
 findInTree ∷ Ord key ⇒ Cofree (Map key) value → [key] → Maybe value
 findInTree (extract → value) [ ] = Just value
