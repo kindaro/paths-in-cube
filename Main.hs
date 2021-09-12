@@ -99,7 +99,7 @@ instance KnownNat dimension ⇒ Memoizable (Vector dimension Int) where
 instance {-# overlapping #-} KnownNat dimension ⇒ Memoizable [Vector dimension Int] where
   memoize function = \ input → fromMaybe (function input) (findInTree memory input)
     where
-      memory = trace "" buildTree (Set.fromList theBox) function
+      memory = buildTree (Set.fromList theBox) function
 
 type Tree key value = Cofree (Map key) value
   
