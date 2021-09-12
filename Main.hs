@@ -98,7 +98,7 @@ instance KnownNat dimension ⇒ Memoizable (Vector dimension Int) where
 instance {-# overlapping #-} KnownNat dimension ⇒ Memoizable [Vector dimension Int] where
   memoize function = \ input → fromMaybe (function input) (findInTree memory input)
     where
-      memory = GHC.Exts.lazy (buildTree (Set.fromList theBox)) function
+      memory = buildTree (Set.fromList theBox) function
 
 buildTree ∷ ∀ key value. Set key → ([key] → value) → Cofree (Map key) value
 buildTree keySet function = Recursion.unfold unfolding [ ]
