@@ -23,6 +23,13 @@ import Data.Function
 import Relude (bimap)
 import Relude qualified
 import Data.Time qualified as Time
+import Data.Map.Lazy qualified as Map
+import Data.Map.Lazy (Map)
+import Control.Comonad
+import Control.Comonad.Cofree qualified as Cofree
+import Control.Comonad.Cofree (Cofree)
+import Control.Comonad.Trans.Cofree (CofreeF ((:<)))
+import Data.Functor.Foldable qualified as Recursion
 
 main ∷ IO ( )
 main = do
@@ -88,6 +95,25 @@ instance KnownNat dimension ⇒ Memoizable (Vector dimension Int) where
       encodeVector = Vector.sum ∘ polynomial
         where
           polynomial vector = Vector.zipWith (\ digit power → digit * get @SizeOfTheBox reifiedNat^power) vector (enumFrom0 @Int)
+
+instance {-# overlapping #-} KnownNat dimension ⇒ Memoizable [Vector dimension Int] where
+  memoize function = \ input → fromMaybe (function input) (findInTree memory input)
+    where
+      memory = trace "" buildTree (Set.fromList theBox) function
+
+type Tree key value = Cofree (Map key) value
+  
+buildTree ∷ ∀ key value. Set key → ([key] → value) → Cofree (Map key) value
+buildTree keySet function = Recursion.unfold unfolding [ ]
+  where
+    unfolding ∷ [key] → CofreeF (Map key) value [key]
+    unfolding keys = function keys :< Map.fromSet (: keys) keySet
+
+findInTree ∷ Ord key ⇒ Cofree (Map key) value → [key] → Maybe value
+findInTree (extract → value) [ ] = Just value
+findInTree (Cofree.unwrap → branch) (key: keys) = do
+  subCofree ← Map.lookup key branch
+  findInTree subCofree keys
 
 enumFrom0 ∷ ∀ number length. (Num number, Enum number, Vector.Unbox number, KnownNat length) ⇒ Vector length number
 enumFrom0 = Vector.enumFromN 0

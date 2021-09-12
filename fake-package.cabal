@@ -17,12 +17,13 @@ executable script
         TypeSynonymInstances RecordWildCards MagicHash
         GeneralizedNewtypeDeriving DeriveFunctor
         InstanceSigs ApplicativeDo
+        ViewPatterns
 
     -- mixins:   base hiding (Prelude)
     --       , relude (Relude as Prelude)
     --       , relude
 
-    ghc-options:        -Wpartial-type-signatures -fdefer-typed-holes -Wall -Wextra -Wunused-packages -O2 -fprof-auto -fprof-cafs
+    ghc-options:        -Wpartial-type-signatures -fdefer-typed-holes -Wall -Wextra -Wunused-packages -O2 -fprof-auto -fprof-cafs -rtsopts -fdefer-typed-holes
     build-depends: base, base-unicode-symbols, containers, array
         , finite-typelits
         , vector-sized
@@ -32,3 +33,5 @@ executable script
         , memoize
         , relude
         , time
+        , recursion-schemes
+        , comonad
