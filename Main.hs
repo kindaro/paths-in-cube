@@ -107,8 +107,6 @@ data Pair α = Pair α α deriving (Show, Eq, Ord, Functor, Foldable, Traversabl
 
 instance Show1 Pair where liftShowsPrec = gliftShowsPrec
 
-type Tree = Cofree Pair Int
-
 cutoff ∷ _ ⇒ Int → Cofree f α → Cofree (Relude.Compose Maybe f) α
 cutoff n cofree = Recursion.unfold f (cofree, n)
   where
@@ -173,6 +171,37 @@ findInTree (extract → value) [ ] = Just value
 findInTree (Cofree.unwrap → branch) (key: keys) = do
   subCofree ← Map.lookup key branch
   findInTree subCofree keys
+
+data Tree dimension α where
+  Leaf ∷ Cofree Pair α → Tree 1 α
+  Branch ∷ Cofree Pair (Tree (dimension - 1) α) → Tree dimension α
+
+class HierarchicalMemory dimension where
+  buildHierarchicalTree ∷ (Vector dimension Int → α) → Tree dimension α
+  findInHierarchicalTree ∷ Tree dimension α → (Vector dimension Int → α)
+
+  memoizeWithHierarchicalTree ∷ (Vector dimension Int → α) → Vector dimension Int → α
+  memoizeWithHierarchicalTree = findInHierarchicalTree ∘ buildHierarchicalTree
+
+instance {-# overlapping #-} HierarchicalMemory 1 where
+  buildHierarchicalTree = Leaf ∘ buildIntTree ∘ (∘ Vector.singleton)
+  findInHierarchicalTree (Leaf cofree) = findInIntTree cofree ∘ Vector.head
+  findInHierarchicalTree (Branch _) = error "Impossible: branches are always of dimension at least 2."
+
+instance
+  ( HierarchicalMemory previousDimension
+  , dimension ~ (1 + previousDimension)
+  , dimension ~ (previousDimension + 1)
+  , previousDimension ~ (dimension - 1)
+  ) ⇒ HierarchicalMemory dimension where
+  buildHierarchicalTree ∷ ∀ α. (Vector dimension Int → α) → Tree dimension α
+  buildHierarchicalTree function = Branch (buildIntTree curriedFunction)
+    where
+      curriedFunction ∷ Int → Tree (dimension - 1) α
+      curriedFunction number = buildHierarchicalTree \ vector → function (number `Vector.cons` vector)
+  findInHierarchicalTree ∷ Tree dimension α → (Vector dimension Int → α)
+  findInHierarchicalTree (Branch cofree) vector = findInHierarchicalTree (findInIntTree cofree (Vector.head vector)) (Vector.tail vector)
+  findInHierarchicalTree (Leaf _) _ = error "Impossible: there are only leaves of dimension 1."
 
 enumFrom0 ∷ ∀ number length. (Num number, Enum number, Vector.Unbox number, KnownNat length) ⇒ Vector length number
 enumFrom0 = Vector.enumFromN 0
