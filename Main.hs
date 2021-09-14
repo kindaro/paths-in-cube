@@ -40,16 +40,18 @@ main = do
   -- Gloss.display (Gloss.InWindow "Nice Window" (200, 200) (10, 10)) Gloss.white (Gloss.Circle 80)
 
   where
-    progressReporter timeMVar (berries, sprouts) = do
+    progressReporter timeMVar growth berries sprouts = do
       previousTime ← Relude.takeMVar timeMVar
       currentTime ← Time.getCurrentTime
       let differenceInTime = Time.diffUTCTime currentTime previousTime
       Relude.putMVar timeMVar currentTime
       (putStrLn ∘ List.intercalate "\t")
-        [ show $ length berries
+        [ show $ length growth
+        , show $ length berries
         , show $ length sprouts
         , Time.formatTime Time.defaultTimeLocale "%H : %M : %0ES" differenceInTime
         , Time.formatTime Time.defaultTimeLocale "%Y %m %d — %H : %M : %0ES" currentTime
+        , show $ 1000 * Time.nominalDiffTimeToSeconds differenceInTime / fromIntegral (length growth)
         ]
 
 newtype ReifiedNat (nat ∷ Nat) number = ReifiedNat {get ∷ number} deriving (Show, Eq, Ord)
@@ -173,7 +175,7 @@ iterator
   ∷ ∀ monad underling. (Ord underling, Monad monad)
   ⇒ (underling → Set (Either underling underling))
   → underling
-  → ((Set underling, Set underling) → monad ( ))
+  → (Set underling → Set underling → Set underling → monad ( ))
   → monad [Set underling]
 iterator grow seed reportProgress = worker (Set.singleton seed)
   where
@@ -181,8 +183,8 @@ iterator grow seed reportProgress = worker (Set.singleton seed)
     worker growth
       | Set.null growth = return [ ]
       | otherwise = do
-          let newGrowth@(berries, sprouts) = (partition ∘ Set.unions ∘ Set.map grow) growth
-          reportProgress newGrowth
+          let (berries, sprouts) = (partition ∘ Set.unions ∘ Set.map grow) growth
+          reportProgress growth berries sprouts
           lifeGoesOn ← worker sprouts
           return (berries: lifeGoesOn)
 
