@@ -5,9 +5,9 @@ module Main (main) where
 import Control.Applicative
 import Control.Arrow qualified as Arrow
 import Control.Comonad
-import Control.Comonad.Cofree (Cofree)
 import Control.Comonad.Cofree qualified as Cofree
-import Control.Comonad.Trans.Cofree (CofreeF ((:<)))
+import Control.Comonad.Cofree (Cofree ((:<)))
+import Control.Comonad.Trans.Cofree qualified as CofreeTransformer
 import Data.Act
 import Data.Array (Array)
 import Data.Array qualified as Array
@@ -29,6 +29,9 @@ import Prelude.Unicode
 import Relude (bimap)
 import Relude.List qualified as List
 import Relude qualified
+import Generic.Data
+import Data.Functor.Classes
+import Debug.Trace
 
 main ∷ IO ( )
 main = do
@@ -100,11 +103,70 @@ instance {-# overlapping #-} KnownNat dimension ⇒ Memoizable [Vector dimension
     where
       memory = GHC.Exts.lazy (buildTree (Set.fromList theBox)) function
 
+data Pair α = Pair α α deriving (Show, Eq, Ord, Functor, Foldable, Traversable, Generic, Generic1)
+
+instance Show1 Pair where liftShowsPrec = gliftShowsPrec
+
+type Tree = Cofree Pair Int
+
+cutoff ∷ _ ⇒ Int → Cofree f α → Cofree (Relude.Compose Maybe f) α
+cutoff n cofree = Recursion.unfold f (cofree, n)
+  where
+    f (value :< branches, 0) = value CofreeTransformer.:< Relude.Compose Nothing
+    f (value :< branches, n) = value CofreeTransformer.:< Relude.Compose (Just (fmap (, n - 1) branches))
+
+breadth ∷ Cofree Pair α → [[α]]
+breadth cofree = Recursion.fold f cofree
+  where
+    f (value CofreeTransformer.:< Pair leftSubTree rightSubTree) = [value]: zipWith (++) leftSubTree rightSubTree
+
+buildWordTree ∷ ∀ α. (Word → α) → Cofree Pair α
+buildWordTree function = Recursion.unfold unfolding 1
+  where
+    unfolding ∷ Word → CofreeTransformer.CofreeF Pair α Word
+    unfolding seed = value CofreeTransformer.:< branch
+      where
+        value = function seed
+        branch = Pair (seed * 2) (seed * 2 + 1)
+
+findInWordTree ∷ Cofree Pair α → Relude.Word → α
+findInWordTree cofree index = worker cofree (numberOfBinaryDigitsOf index - 1) (index - 2^(numberOfBinaryDigitsOf index - 1))
+  where
+    worker (extract → value) 0 0 = value
+    worker (Cofree.unwrap → Pair leftBranch rightBranch) order index =
+      if index ≥ powerOf2
+      then worker rightBranch (order - 1) (index - powerOf2)
+      else worker leftBranch (order - 1) index
+      where powerOf2 = 2^(order - 1)
+    worker _ order index = error (show (order, index))
+
+buildIntTree ∷ ∀ α. (Int → α) → Cofree Pair α
+buildIntTree function = function 0 :< Pair (buildWordTree (function ∘ negate ∘ fromIntegral)) (buildWordTree (function ∘ fromIntegral))
+
+findInIntTree ∷ Cofree Pair α → Int → α
+findInIntTree (valueAt0 :< Pair treeOfNegativeValues treeOfPositiveValues) key = case key `compare` 0 of
+  LT → findInWordTree treeOfNegativeValues (negate (fromIntegral key))
+  EQ → valueAt0
+  GT → findInWordTree treeOfPositiveValues (fromIntegral key)
+numberOfBinaryDigitsOf ∷ Word → Relude.Natural
+numberOfBinaryDigitsOf = floor ∘ (+1) ∘ logBase @Float 2 ∘ fromIntegral
+
+decompose ∷ Word → [Bool]
+decompose 0 = [ ]
+decompose number =
+  let mostSignificantDigit = numberOfBinaryDigitsOf number
+  in List.unfoldr unfolding (number, mostSignificantDigit)
+  where
+    unfolding (_, 0) = Nothing
+    unfolding (number, mostSignificantDigit) = Just if number ≥ 2^(mostSignificantDigit - 1)
+      then (True, (number - 2^(mostSignificantDigit - 1), mostSignificantDigit - 1))
+      else (False, (number, mostSignificantDigit - 1))
+
 buildTree ∷ ∀ key value. Set key → ([key] → value) → Cofree (Map key) value
 buildTree keySet function = Recursion.unfold unfolding [ ]
   where
-    unfolding ∷ [key] → CofreeF (Map key) value [key]
-    unfolding keys = function keys :< Map.fromSet (: keys) keySet
+    unfolding ∷ [key] → CofreeTransformer.CofreeF (Map key) value [key]
+    unfolding keys = function keys CofreeTransformer.:< Map.fromSet (: keys) keySet
 
 findInTree ∷ Ord key ⇒ Cofree (Map key) value → [key] → Maybe value
 findInTree (extract → value) [ ] = Just value

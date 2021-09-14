@@ -15,7 +15,7 @@ executable script
         ImportQualifiedPost
         ScopedTypeVariables
         TypeSynonymInstances RecordWildCards MagicHash
-        GeneralizedNewtypeDeriving DeriveFunctor
+        GeneralizedNewtypeDeriving DeriveFunctor DeriveFoldable DeriveTraversable DeriveGeneric
         InstanceSigs ApplicativeDo
         ViewPatterns
 
@@ -35,3 +35,5 @@ executable script
         , time
         , recursion-schemes
         , comonad
+        , QuickCheck
+        , generic-data
